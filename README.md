@@ -2,7 +2,12 @@
 
 Ein kleines Arena-Survival-Spiel im Neon-Look. Eine einzige HTML-Datei, nichts zu installieren.
 
-**Starten:** `index.html` im Browser öffnen (Doppelklick reicht).
+**Starten:** `index.html` im Browser öffnen (Doppelklick reicht). Läuft auch auf dem Handy.
+
+## Steuerung am Handy
+- **Daumen auf den Bildschirm legen und ziehen**: bewegen (virtueller Joystick)
+- Gezielt wird automatisch auf den nächsten Gegner
+- **DASH-Knopf** rechts unten
 
 ## Steuerung
 - **WASD / Pfeiltasten**: bewegen

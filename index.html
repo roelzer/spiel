@@ -2,13 +2,17 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <title>Neon Swarm</title>
 <style>
+  :root { color-scheme: dark; }
   html, body { margin: 0; height: 100%; background: #07070f; overflow: hidden; font-family: system-ui, sans-serif; color: #e8e8ff; }
-  canvas { display: block; cursor: crosshair; }
+  canvas { display: block; cursor: crosshair; touch-action: none; }
+  body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   #ui { position: fixed; inset: 0; pointer-events: none; }
-  #hud { position: absolute; top: 12px; left: 16px; right: 16px; display: flex; justify-content: space-between; font-size: 15px; text-shadow: 0 0 6px #0ff; }
+  #hud { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 16px; right: 16px; display: flex; justify-content: space-between; font-size: 15px; text-shadow: 0 0 6px #0ff; }
   #xpbar { position: absolute; bottom: 0; left: 0; height: 6px; background: linear-gradient(90deg, #0ff, #f0f); box-shadow: 0 0 10px #0ff; }
   .overlay { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; background: rgba(5,5,15,.78); pointer-events: auto; text-align: center; padding: 16px; }
   .overlay.show { display: flex; }
@@ -21,6 +25,14 @@
   .card:hover { transform: translateY(-4px) scale(1.03); }
   .card b { display: block; font-size: 18px; color: #f8f; margin-bottom: 6px; }
   .card small { opacity: .5; display: block; margin-top: 8px; }
+  .touch-only { display: none; }
+  .is-touch .touch-only { display: inline; }
+  .is-touch .desk-only { display: none; }
+  @media (max-width: 600px) {
+    #hud { font-size: 12px; top: max(30px, env(safe-area-inset-top)); }
+    .card { width: 100%; max-width: 320px; padding: 12px; }
+    #cards { gap: 10px; }
+  }
   kbd { border: 1px solid #888; border-radius: 4px; padding: 1px 6px; }
 </style>
 </head>
@@ -32,11 +44,14 @@
   <div class="overlay show" id="start">
     <h1>NEON SWARM</h1>
     <p>Überlebe den Schwarm so lange wie möglich.<br>
-      <kbd>WASD</kbd>/<kbd>Pfeiltasten</kbd> bewegen · <b>Maus</b> zielen · Schießen geht automatisch<br>
-      <kbd>Leertaste</kbd> Dash · <kbd>P</kbd> Pause · Sammle Kristalle für Upgrades</p>
+      <span class="desk-only"><kbd>WASD</kbd>/<kbd>Pfeiltasten</kbd> bewegen · <b>Maus</b> zielen · Schießen geht automatisch<br>
+      <kbd>Leertaste</kbd> Dash · <kbd>P</kbd> Pause · </span>
+      <span class="touch-only">Daumen irgendwo auf den Bildschirm legen und ziehen = bewegen<br>
+      Gezielt und geschossen wird automatisch · Rechts unten: <b>Dash</b><br></span>
+      Sammle Kristalle für Upgrades</p>
     <button id="go">Spielen</button>
   </div>
-  <div class="overlay" id="level"><h1 style="font-size:40px">LEVEL UP!</h1><p>Wähle ein Upgrade <small>(Tasten 1–3)</small></p><div id="cards"></div></div>
+  <div class="overlay" id="level"><h1 style="font-size:40px">LEVEL UP!</h1><p>Wähle ein Upgrade <small class="desk-only">(Tasten 1–3)</small></p><div id="cards"></div></div>
   <div class="overlay" id="over"><h1>GAME OVER</h1><p id="summary"></p><button id="again">Nochmal</button></div>
   <div class="overlay" id="pause"><h1>PAUSE</h1><p>Drücke <kbd>P</kbd> zum Weiterspielen</p></div>
 </div>
@@ -69,9 +84,52 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => keys[e.code] = false);
 addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
 
+// Touch: virtual joystick anywhere, dash button bottom right, auto-aim
+let isTouch = matchMedia('(pointer: coarse)').matches;
+const joy = { id: null, ox: 0, oy: 0, x: 0, y: 0, dx: 0, dy: 0 };
+const dashBtn = () => ({ x: W - 70, y: H - 90, r: 44 });
+if (isTouch) document.body.classList.add('is-touch');
+cv.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (!isTouch) { isTouch = true; document.body.classList.add('is-touch'); }
+  for (const t of e.changedTouches) {
+    const b = dashBtn();
+    if ((t.clientX - b.x) ** 2 + (t.clientY - b.y) ** 2 < (b.r + 20) ** 2) { dash(); continue; }
+    if (joy.id === null) { joy.id = t.identifier; joy.ox = joy.x = t.clientX; joy.oy = joy.y = t.clientY; joy.dx = joy.dy = 0; }
+  }
+}, { passive: false });
+cv.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) if (t.identifier === joy.id) {
+    let dx = t.clientX - joy.ox, dy = t.clientY - joy.oy;
+    const l = Math.hypot(dx, dy), max = 60;
+    if (l > max) { joy.ox += dx * (1 - max / l); joy.oy += dy * (1 - max / l); dx = t.clientX - joy.ox; dy = t.clientY - joy.oy; }
+    joy.x = t.clientX; joy.y = t.clientY; joy.dx = dx / max; joy.dy = dy / max;
+  }
+}, { passive: false });
+const endTouch = e => { for (const t of e.changedTouches) if (t.identifier === joy.id) { joy.id = null; joy.dx = joy.dy = 0; } };
+cv.addEventListener('touchend', endTouch); cv.addEventListener('touchcancel', endTouch);
+document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') setPause(true); });
+document.getElementById('pause').addEventListener('click', () => { if (state === 'pause') setPause(false); });
+
+function moveInput() {
+  let x = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0) + joy.dx;
+  let y = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0) + joy.dy;
+  const l = Math.hypot(x, y);
+  return l > 1 ? { x: x / l, y: y / l } : { x, y };
+}
+let lastAim = 0;
+function aimAngle() {
+  if (!isTouch) return Math.atan2(mouse.y - P.y, mouse.x - P.x);
+  let bestE = null, bd = Infinity;
+  for (const e of enemies) { const d = dist2(e, P); if (d < bd) { bd = d; bestE = e; } }
+  if (bestE) lastAim = Math.atan2(bestE.y - P.y, bestE.x - P.x);
+  return lastAim;
+}
+
 // ---------- Game state ----------
 let state = 'menu', P, bullets, enemies, orbs, parts, texts, time, kills, spawnT, shake, offers, nextBoss;
-const best = () => +(localStorage.getItem('neonswarm-best') || 0);
+const best = () => { try { return +(localStorage.getItem('neonswarm-best') || 0); } catch { return 0; } };
 
 const UPGRADES = [
   { id: 'rate',   name: 'Schnellfeuer',   desc: '+25% Feuerrate',            apply: p => p.fireDelay *= .8 },
@@ -141,9 +199,9 @@ function spawnEnemy(type, x, y) {
 
 function dash() {
   if (state !== 'play' || P.dashCd > 0) return;
-  let dx = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
-  let dy = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
-  if (!dx && !dy) { dx = mouse.x - P.x; dy = mouse.y - P.y; }
+  const mv = moveInput();
+  let dx = mv.x, dy = mv.y;
+  if (!dx && !dy) { const a = aimAngle(); dx = Math.cos(a); dy = Math.sin(a); }
   const l = Math.hypot(dx, dy) || 1;
   P.vx = dx / l * 900; P.vy = dy / l * 900;
   P.dashT = .15; P.dashCd = 1.2; P.inv = Math.max(P.inv, .3);
@@ -169,7 +227,7 @@ function levelUp() {
   const box = document.getElementById('cards'); box.innerHTML = '';
   offers.forEach((u, i) => {
     const d = document.createElement('div'); d.className = 'card';
-    d.innerHTML = `<b>${u.name}</b>${u.desc}<small>Taste ${i + 1}</small>`;
+    d.innerHTML = `<b>${u.name}</b>${u.desc}<small class="desk-only">Taste ${i + 1}</small>`;
     d.onclick = () => pickCard(i); box.appendChild(d);
   });
   state = 'level'; show('level');
@@ -184,7 +242,7 @@ function gameOver() {
   state = 'over';
   const score = Math.floor(time) * 10 + kills * 5;
   const rec = score > best();
-  if (rec) localStorage.setItem('neonswarm-best', score);
+  if (rec) try { localStorage.setItem('neonswarm-best', score); } catch {}
   document.getElementById('summary').innerHTML =
     `Überlebt: <b>${fmt(time)}</b> · Kills: <b>${kills}</b> · Level: <b>${P.lvl}</b><br>
      Punkte: <b>${score}</b> ${rec ? '🏆 Neuer Rekord!' : `(Rekord: ${best()})`}`;
@@ -197,13 +255,11 @@ const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2,
 function update(dt) {
   time += dt;
   // movement
-  let mx = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
-  let my = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
-  const ml = Math.hypot(mx, my) || 1;
+  const mv = moveInput();
   if (P.dashT > 0) {
     P.dashT -= dt; P.x += P.vx * dt; P.y += P.vy * dt;
     parts.push({ x: P.x, y: P.y, vx: 0, vy: 0, life: .25, max: .25, color: '#0ff', size: P.r * .8 });
-  } else { P.x += mx / ml * P.speed * dt; P.y += my / ml * P.speed * dt; }
+  } else { P.x += mv.x * P.speed * dt; P.y += mv.y * P.speed * dt; }
   P.x = Math.max(P.r, Math.min(W - P.r, P.x)); P.y = Math.max(P.r, Math.min(H - P.r, P.y));
   P.dashCd -= dt; P.inv -= dt;
   P.hp = Math.min(P.maxHp, P.hp + P.regen * dt);
@@ -212,7 +268,7 @@ function update(dt) {
   P.fireT -= dt;
   if (P.fireT <= 0) {
     P.fireT = P.fireDelay;
-    const base = Math.atan2(mouse.y - P.y, mouse.x - P.x), spread = .14;
+    const base = aimAngle(), spread = .14;
     for (let i = 0; i < P.shots; i++) {
       const a = base + (i - (P.shots - 1) / 2) * spread;
       bullets.push({ x: P.x, y: P.y, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, life: 1.2, pierce: P.pierce, hitSet: new Set() });
@@ -223,7 +279,7 @@ function update(dt) {
   // spawning: rate ramps up over time
   spawnT -= dt;
   if (spawnT <= 0) {
-    spawnT = Math.max(.12, .9 - time / 120);
+    spawnT = Math.max(.12, .9 - time / 120) * Math.sqrt(Math.max(1, 1280 * 720 / (W * H))); // fewer enemies on small screens
     const r = Math.random();
     const type = time > 60 && r < .08 ? 'tank' : time > 30 && r < .25 ? 'splitter' : time > 15 && r < .45 ? 'runner' : 'grunt';
     spawnEnemy(type);
@@ -354,7 +410,7 @@ function draw() {
   }
 
   // player
-  const ang = Math.atan2(mouse.y - P.y, mouse.x - P.x);
+  const ang = aimAngle();
   if (!(P.inv > 0 && Math.floor(time * 20) % 2)) {
     ctx.save(); ctx.translate(P.x, P.y); ctx.rotate(ang);
     ctx.shadowColor = '#0ff'; ctx.shadowBlur = 20; ctx.strokeStyle = '#0ff'; ctx.lineWidth = 3; ctx.fillStyle = '#0ff3';
@@ -375,8 +431,21 @@ function draw() {
   document.getElementById('right').innerHTML = `⏱ ${fmt(time)} &nbsp; 🏆 ${best()}`;
   document.getElementById('xpbar').style.width = (P.xp / P.next * 100) + '%';
   // HP bar on top
-  ctx.fillStyle = '#300'; ctx.fillRect(W / 2 - 150, 14, 300, 8);
-  ctx.fillStyle = P.hp / P.maxHp > .3 ? '#3f9' : '#f33'; ctx.fillRect(W / 2 - 150, 14, 300 * Math.max(0, P.hp / P.maxHp), 8);
+  const hpw = Math.min(300, W * .5);
+  ctx.fillStyle = '#300'; ctx.fillRect(W / 2 - hpw / 2, 14, hpw, 8);
+  ctx.fillStyle = P.hp / P.maxHp > .3 ? '#3f9' : '#f33'; ctx.fillRect(W / 2 - hpw / 2, 14, hpw * Math.max(0, P.hp / P.maxHp), 8);
+
+  if (isTouch && state === 'play') {
+    const b = dashBtn(), ready = P.dashCd <= 0;
+    ctx.lineWidth = 3; ctx.strokeStyle = ready ? '#0ff' : '#0ff4'; ctx.fillStyle = ready ? '#0ff2' : '#0ff1';
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 7); ctx.fill(); ctx.stroke();
+    if (!ready) { ctx.strokeStyle = '#0ff'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - P.dashCd / 1.2)); ctx.stroke(); }
+    ctx.fillStyle = ready ? '#0ff' : '#0ff8'; ctx.font = 'bold 14px system-ui'; ctx.textAlign = 'center'; ctx.fillText('DASH', b.x, b.y + 5);
+    if (joy.id !== null) {
+      ctx.strokeStyle = '#fff3'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(joy.ox, joy.oy, 60, 0, 7); ctx.stroke();
+      ctx.fillStyle = '#fff4'; ctx.beginPath(); ctx.arc(joy.ox + joy.dx * 60, joy.oy + joy.dy * 60, 24, 0, 7); ctx.fill();
+    }
+  }
 }
 
 let last = performance.now();
